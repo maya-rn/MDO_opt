@@ -181,7 +181,8 @@ def cost_func(wingspan, mid_chord, tip_chord, cap_area, t_skin, root_twist, mid_
     # Price model
     price_est = price(spar_mat, skin_mat, spar_volume, skin_volume)
 
-    costs = 0.5*range_est + 0.5*price_est
+    # Minimize this function (maximizes range, minimizes price, equally weighted)
+    costs = -0.5*range_est + 0.5*price_est
 
     return costs
 
