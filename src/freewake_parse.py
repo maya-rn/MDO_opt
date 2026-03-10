@@ -2,8 +2,9 @@
 # Inputs: wingspan, wing area, aircraft weight
 import subprocess
 import pandas as pd
+import os
 
-def freewake_input(span, chord_mid, chord_tip, twist_root, twist_mid, twist_tip, weight):
+def freewake_input(span, chord_mid, chord_tip, twist_root, twist_mid, twist_tip, weight, deflect_tip=0, deflect_mid=0, alpha_min=0.5, alpha_max=10, alpha_delta=0.5):
 
     chord_root = 0.15
     area = (((chord_mid+chord_tip)/2)*(span/4) + ((chord_mid+chord_root)/2)*(span/4))*2
@@ -33,7 +34,7 @@ def freewake_input(span, chord_mid, chord_tip, twist_root, twist_mid, twist_tip,
 
 
         f.write("Freestream velocity (leave value 1): Uinf = 1.0 \n")
-        f.write("AOA beginning, end, step size [deg]: alpha	= 0 10 1 \n")
+        f.write(f"AOA beginning, end, step size [deg]: alpha	= {alpha_min:.2f} {alpha_max:.2f} {alpha_delta} \n")
         f.write("Sideslip angle [deg]: beta	= 0.0 \n")
         f.write("Density: density =	1.225 \n")
         f.write("Kinematic viscosity: nu = 1.4600000e-05 \n \n")
@@ -55,33 +56,33 @@ def freewake_input(span, chord_mid, chord_tip, twist_root, twist_mid, twist_tip,
         f.write("No. of airfoils (max. 15):	airfoils = 10 \n \n")
 
 
-        f.write("Panel #:1. Number of spanwise elements (n) = 20 \n")
+        f.write("Panel #:1. Number of spanwise elements (n) = 10 \n")
         f.write("Neighbouring panels (0 for none) left: 0 right: 2 \n")
-        f.write("xleft	        yleft	        zleft	chord	        epsilon	    Bound.Cond. Airfoil \n")
-        f.write(f"{wing_x_tip}	{-wing_y_half}	0.000	{chord_tip}		{twist_tip}	100			1 \n")
-        f.write("xleft	        yleft	        zleft	chord	        epsilon	    Bound.Cond. Airfoil \n")
-        f.write(f"{wing_x_mid}	{-wing_y_quart}	0.000	{chord_mid}		{twist_mid}	220			1 \n \n")
+        f.write("xleft	        yleft	        zleft	        chord	        epsilon	    Bound.Cond. Airfoil \n")
+        f.write(f"{wing_x_tip}	{-wing_y_half}	{deflect_tip}	{chord_tip}		{twist_tip}	100			1 \n")
+        f.write("xleft	        yleft	        zleft	        chord	        epsilon	    Bound.Cond. Airfoil \n")
+        f.write(f"{wing_x_mid}	{-wing_y_quart}	{deflect_mid}   {chord_mid}		{twist_mid}	220			1 \n \n")
 
-        f.write("Panel #:2. Number of spanwise elements (n) = 20 \n")
+        f.write("Panel #:2. Number of spanwise elements (n) = 10 \n")
         f.write("Neighbouring panels (0 for none) left: 1 right: 3 \n")
-        f.write("xleft	        yleft	        zleft	chord	        epsilon	    Bound.Cond. Airfoil \n")
-        f.write(f"{wing_x_mid}	{-wing_y_quart}	0.000	{chord_mid}		{twist_mid}	220			1 \n")
-        f.write("xleft	        yleft	        zleft	chord	        epsilon	    Bound.Cond. Airfoil \n")
-        f.write(f"{wing_x_root}	0.000	        0.000	{chord_root}	{twist_root}	220			1 \n \n")
+        f.write("xleft	        yleft	        zleft	        chord	        epsilon	    Bound.Cond. Airfoil \n")
+        f.write(f"{wing_x_mid}	{-wing_y_quart}	{deflect_mid}	{chord_mid}		{twist_mid}	220			1 \n")
+        f.write("xleft	        yleft	        zleft	        chord	        epsilon	    Bound.Cond. Airfoil \n")
+        f.write(f"{wing_x_root}	0.000	        0.000	        {chord_root}	{twist_root}	220			1 \n \n")
 
-        f.write("Panel #:3. Number of spanwise elements (n) = 20 \n")
+        f.write("Panel #:3. Number of spanwise elements (n) = 10 \n")
         f.write("Neighbouring panels (0 for none) left: 2 right: 4 \n")
-        f.write("xleft	        yleft	        zleft	chord	        epsilon	    Bound.Cond. Airfoil \n")
-        f.write(f"{wing_x_root}	0.000	        0.000	{chord_root}	{twist_root}    220			1 \n")
-        f.write("xleft	        yleft	        zleft	chord	        epsilon	    Bound.Cond. Airfoil \n")
-        f.write(f"{wing_x_mid}	{wing_y_quart}	0.000	{chord_mid}		{twist_mid}	220			1 \n \n")
+        f.write("xleft	        yleft	        zleft	        chord	        epsilon	    Bound.Cond. Airfoil \n")
+        f.write(f"{wing_x_root}	0.000	        0.000	        {chord_root}	{twist_root}    220			1 \n")
+        f.write("xleft	        yleft	        zleft	        chord	        epsilon	    Bound.Cond. Airfoil \n")
+        f.write(f"{wing_x_mid}	{wing_y_quart}	{deflect_mid}   {chord_mid}		{twist_mid}	220			1 \n \n")
 
-        f.write("Panel #:4. Number of spanwise elements (n) = 20 \n")
+        f.write("Panel #:4. Number of spanwise elements (n) = 10 \n")
         f.write("Neighbouring panels (0 for none) left: 3 right: 0 \n")
-        f.write("xleft	        yleft	        zleft	chord	        epsilon	    Bound.Cond. Airfoil \n")
-        f.write(f"{wing_x_mid}	{wing_y_quart}	0.000	{chord_mid}		{twist_mid}	220			1 \n")
-        f.write("xleft	        yleft	        zleft	chord	        epsilon	    Bound.Cond. Airfoil \n")
-        f.write(f"{wing_x_tip}	{wing_y_half}	0.000	{chord_tip}		{twist_tip}	100			1 \n \n")
+        f.write("xleft	        yleft	        zleft	        chord	        epsilon	    Bound.Cond. Airfoil \n")
+        f.write(f"{wing_x_mid}	{wing_y_quart}	{deflect_mid}   {chord_mid}		{twist_mid}	220			1 \n")
+        f.write("xleft	        yleft	        zleft	        chord	        epsilon	    Bound.Cond. Airfoil \n")
+        f.write(f"{wing_x_tip}	{wing_y_half}	{deflect_tip}	{chord_tip}		{twist_tip}	100			1 \n \n")
 
         # f.write("Tail area is 0.2265 m^2 \n \n")
 
@@ -105,19 +106,25 @@ def freewake_input(span, chord_mid, chord_tip, twist_root, twist_mid, twist_tip,
     
     return
 
-def freewake_run():
+def freewake_run(aoa=None):
 
     # HARDCODED: filepath of Freewake executable
-
+    aoa_col = ['index','xo','yo','zo','cn','cl','cy','cd','A','B','C','S','span','chord','nu','epsilon','psi','phiLE','#']
     fw_folder = r"C:\Users\mayar\Documents\Ryerson\AALOFT\Freewake(in_use)"
     fw_exe = "fw_2025.exe"
     result_check = subprocess.run([fw_exe], cwd=fw_folder, capture_output=True, text=True, shell=True)
     print("Freewake ran successfully if 0: \n", result_check.returncode)
 
     # Get output Performance.txt file
-    output_path = "C:/Users/mayar/Documents/Ryerson/AALOFT/Freewake(in_use)/output/Performance.txt"
-    df_performance = pd.read_csv(output_path, sep=r'\s+', skiprows=3)
+    perf_output_path = r"C:/Users/mayar/Documents/Ryerson/AALOFT/Freewake(in_use)/output/Performance.txt"
+    df_performance = pd.read_csv(perf_output_path, sep=r'\s+', skiprows=3)
 
-    return df_performance
+    if aoa is not None:
+        filename = f"AOA{aoa:.2f}.txt"
+        force_base_path = r"C:/Users/mayar/Documents/Ryerson/AALOFT/Freewake(in_use)/output.txt"
+        force_output_path = os.path.join(force_base_path,filename)
+        df_force = pd.read_csv(force_output_path, skiprows=4, sep=r'\s+', nrows=40, header=None, names=aoa_col)
+
+    return df_performance, df_force
 
 

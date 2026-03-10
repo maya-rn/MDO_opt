@@ -1,9 +1,10 @@
 ## put main optimization function here
 
 import numpy as np
-from freewake_parse import freewake_input, freewake_run
-import materials
+from src.freewake_parse import freewake_input, freewake_run
+from src import materials
 from scipy.optimize import curve_fit
+from scipy.interpolate import interp1d
 
 
 def material_costs(mat):
@@ -98,33 +99,47 @@ def power_eqn(V, a, b, c):
     return np.array(a*(V**2) + b*V + c)
 
 
-def aero(wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, spar_mat, skin_mat, spar_volume, skin_volume):
+def aero(wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, spar_mat, skin_mat, spar_volume, skin_volume, deflect_tip, deflect_mid):
 
     # CONSTANTS
     g = 9.81
 
     # Aircraft sizing
     S = wing_area(wingspan, mid_chord, tip_chord)
+    AR = (wingspan**2)/S
 
     # Aircraft weight
     m = mass(spar_mat, skin_mat, spar_volume, skin_volume)
     W = m*g
 
     # Create input file for FreeWake
-    freewake_input(wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, W)
-    df_fw = freewake_run()
+    freewake_input(wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, W, deflect_tip, deflect_mid)
+    df_fw_init, _ = freewake_run()
 
     # Fit second-order curve to airspeed vs. power
-    coefficients, _ = curve_fit(power_eqn, df_fw['Vinf'], df_fw['Preq'])
+    coefficients, _ = curve_fit(power_eqn, df_fw_init['Vinf'], df_fw_init['Preq'])
     a_fit, b_fit, c_fit = coefficients
 
     # Find speed for max range
     V_maxR = np.sqrt(c_fit/a_fit)
 
-    # Find power required at speed for max range
+    # # Find power required at speed for max range
     Preq = power_eqn(V_maxR, a_fit, b_fit, c_fit)
 
-    return V_maxR, Preq
+    # Find aoa for max range
+    # CL = W/(0.5*1.225*(V_maxR**2)*wingspan)
+    # CL_alpha = (2*np.pi)*(AR/(AR+2))
+    # aoa_maxR = np.rad2deg(CL/CL_alpha)
+    f_aoa_max = interp1d(df_fw_init['Vinf'],df_fw_init['alpha'],kind='linear')
+    aoa_maxR = f_aoa_max(V_maxR)
+
+    freewake_input(wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, W, deflect_tip, deflect_mid, aoa_maxR, aoa_maxR, 1)
+    _, df_load = freewake_run(aoa_maxR)
+
+    y_pos = df_load['yo']
+    y_load = 0.5*1.225*V_maxR*V_maxR*df_load['S']*df_load['cl']
+
+    return V_maxR, Preq, y_pos, y_load
     
 
 def price(spar_mat, skin_mat, spar_volume, skin_volume):
@@ -171,18 +186,21 @@ def cost_func(wingspan, mid_chord, tip_chord, cap_area, t_skin, root_twist, mid_
 
     # Structures model here with inputs of cap_area and skin thickness, outputs of spar volume and skin volume
     # This is just an estimate, needs to be more detailed
+    # flange width, flange thickness, 
     spar_volume = cap_area*wingspan
     S = wing_area(wingspan, mid_chord, tip_chord)
     skin_volume = 2*S*t_skin
 
     # Range model (with aero model)
-    range_est = (wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, spar_mat, skin_mat, spar_volume, skin_volume)
+    range_est = range(wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, spar_mat, skin_mat, spar_volume, skin_volume)
 
     # Price model
     price_est = price(spar_mat, skin_mat, spar_volume, skin_volume)
 
     # Minimize this function (maximizes range, minimizes price, equally weighted)
-    costs = -0.5*range_est + 0.5*price_est
+    # help function be a convex function
+    # divide range by first estimate, divide cost by first estimate, use initial run
+    costs = (-range_est/first_range) + (price_est/first_price)
 
     return costs
 
