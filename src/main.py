@@ -1,10 +1,12 @@
 ## put main optimization function here
 
 import numpy as np
-from src.freewake_parse import freewake_input, freewake_run
-from src import materials
+from freewake_parse import freewake_input, freewake_run
+import materials
 from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d
+from Mass import total_mass
+from Structures import solve_structure
 
 
 def material_costs(mat):
@@ -65,24 +67,24 @@ def battery(parallel, series):
     return energy, batt_price, batt_mass
 
 
-def mass(spar_mat, skin_mat, spar_volume, skin_volume):
-    # CONSTANT fuse-empennage mass
-    mass_fuse = 2.5 # kg
+# def mass(spar_mat, skin_mat, spar_volume, skin_volume):
+#     # CONSTANT fuse-empennage mass
+#     mass_fuse = 2.5 # kg
 
-    # CONSTANT battery pack mass
-    _, _, mass_batt = battery(6,6)
+#     # CONSTANT battery pack mass
+#     _, _, mass_batt = battery(6,6)
 
-    # spar mass
-    spar_density = material_density(spar_mat)
-    mass_spar = spar_volume*spar_density
+#     # spar mass
+#     spar_density = material_density(spar_mat)
+#     mass_spar = spar_volume*spar_density
 
-    # skin mass
-    skin_density = material_density(skin_mat)
-    mass_skin = skin_volume*skin_density
+#     # skin mass
+#     skin_density = material_density(skin_mat)
+#     mass_skin = skin_volume*skin_density
 
-    total_mass = mass_spar + mass_skin + mass_batt + mass_fuse
+#     total_mass = mass_spar + mass_skin + mass_batt + mass_fuse
 
-    return total_mass
+#     return total_mass
 
 
 def wing_area(wingspan, mid_chord, tip_chord):
@@ -99,43 +101,42 @@ def power_eqn(V, a, b, c):
     return np.array(a*(V**2) + b*V + c)
 
 
-def aero(wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, spar_mat, skin_mat, spar_volume, skin_volume, deflect_tip, deflect_mid):
+# def aero(wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, spar_mat, skin_mat, spar_volume, skin_volume, deflect_tip, deflect_mid):
+def aero(weight, wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, deflect_tip, deflect_mid):
 
-    # CONSTANTS
-    g = 9.81
 
-    # Aircraft sizing
-    S = wing_area(wingspan, mid_chord, tip_chord)
-    AR = (wingspan**2)/S
 
-    # Aircraft weight
-    m = mass(spar_mat, skin_mat, spar_volume, skin_volume)
-    W = m*g
+    # # Aircraft weight
+    # m = mass(spar_mat, skin_mat, spar_volume, skin_volume)
+    # W = m*g
 
     # Create input file for FreeWake
-    freewake_input(wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, W, deflect_tip, deflect_mid)
+    freewake_input(wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, weight, deflect_tip, deflect_mid)
     df_perf, _ = freewake_run()
 
     # Fit second-order curve to airspeed vs. power
-    coefficients, _ = curve_fit(power_eqn, df_perf['Vinf'], df_perf['Preq'])
+    df_clean = df_perf.dropna()
+    coefficients, _ = curve_fit(power_eqn, df_clean['Vinf'], df_clean['Preq'])
     a_fit, b_fit, c_fit = coefficients
 
     # Find speed for max range
     V_maxR = np.sqrt(c_fit/a_fit)
 
-    # # Find power required at speed for max range
+    # Find power required at speed for max range
     Preq = power_eqn(V_maxR, a_fit, b_fit, c_fit)
 
-    # Find aoa for max range
+    # Find aoa for max range using interpolation
     # CL = W/(0.5*1.225*(V_maxR**2)*wingspan)
     # CL_alpha = (2*np.pi)*(AR/(AR+2))
     # aoa_maxR = np.rad2deg(CL/CL_alpha)
     f_aoa_max = interp1d(df_perf['Vinf'],df_perf['alpha'],kind='linear')
     aoa_maxR = f_aoa_max(V_maxR)
 
-    freewake_input(wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, W, deflect_tip, deflect_mid, aoa_maxR, aoa_maxR, 1)
+    # Re-run FreeWake at aoa for max range
+    freewake_input(wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, weight, deflect_tip, deflect_mid, aoa_maxR, aoa_maxR, 1)
     _, df_load = freewake_run(aoa_maxR)
 
+    # Output wing loading at a given y-position
     y_pos = df_load['yo']
     y_load = 0.5*1.225*V_maxR*V_maxR*df_load['S']*df_load['cl']
 
@@ -165,8 +166,8 @@ def price(spar_mat, skin_mat, spar_volume, skin_volume):
     
     return total_price
 
-
-def range(wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, spar_mat, skin_mat, spar_volume, skin_volume):
+def range(V_maxR, Preq):
+    # def range(wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, spar_mat, skin_mat, spar_volume, skin_volume):
     # CONSTANTS
     eta_p = 0.7 # powertrain efficiency
 
@@ -174,33 +175,95 @@ def range(wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, spar
     E_batt, _, _ = battery(6,6)
 
     # Aero
-    V_maxR, Preq = aero(wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, spar_mat, skin_mat, spar_volume, skin_volume)
+    # V_maxR, Preq, _, _ = aero(wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, spar_mat, skin_mat, spar_volume, skin_volume)
 
     R = V_maxR*((E_batt*eta_p)/Preq)
 
     return R
 
+def mat_index(i):
+    if i==0:
+        return 'pla'
+    if i==1:
+        return 'xps'
+    if i==2:
+        return 'aluminum_6061'
+    if i==3:
+        return 'carbon'
+    
 
-def cost_func(wingspan, mid_chord, tip_chord, cap_area, t_skin, root_twist, mid_twist, tip_twist, skin_mat, spar_mat):
+def cost_func(wingspan, mid_chord, tip_chord, t_skin, root_twist, mid_twist, tip_twist, skin_index, spar_index):
     # cost function as a function of all 9 design variables (10 because I assumed skin and spar materials are independent)
 
-    # Structures model here with inputs of cap_area and skin thickness, outputs of spar volume and skin volume
-    # This is just an estimate, needs to be more detailed
-    # flange width, flange thickness, 
-    spar_volume = cap_area*wingspan
+    # Initial run of range and cost functions with initial conitions of optimization variables
+    desired_range = 264.46
+    desired_cost = 599.00
+
+    skin_mat = mat_index(skin_index)
+    spar_mat = mat_index(spar_index)
+
+    # Initial guess of skin and spar volumes for first run of aero model
+    spar_volume = 0.303*0.15*0.05*wingspan
     S = wing_area(wingspan, mid_chord, tip_chord)
     skin_volume = 2*S*t_skin
 
+    # Initial guess of weight
+    mass = total_mass(spar_volume, skin_volume, spar_mat, skin_mat)
+    weight = mass*9.81
+
+    # First run of aero model assuming no tip deflection
+    V_maxR, Preq, y_loc, y_load = aero(weight, wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, 0, 0)
+    wing_load = np.trapezoid(y_load,y_loc)
+    load_cond = 1.5*weight
+
+    # Loop between aero model and structure model until loading is greater than acceptable load
+    while (wing_load < load_cond):
+        # run structure model with loading
+        deflect_mid, deflect_tip, spar_volume, skin_volume, max_stress, mass_tot = solve_structure(wingspan, 0.15, mid_chord, tip_chord, t_skin, spar_mat, skin_mat, y_load)
+
+        weight = mass_tot*9.81
+
+        # run aero model with new mass to get loading
+        V_maxR, Preq, y_loc, y_load = aero(weight, wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, deflect_tip, deflect_mid)
+
+        # check if results of loading are acceptable for new mass
+        wing_load = np.trapezoid(y_load,y_loc)
+        load_cond = 1.5*weight
+
     # Range model (with aero model)
-    range_est = range(wingspan, mid_chord, tip_chord, root_twist, mid_twist, tip_twist, spar_mat, skin_mat, spar_volume, skin_volume)
+    range_est = range(V_maxR, Preq)
 
     # Price model
     price_est = price(spar_mat, skin_mat, spar_volume, skin_volume)
 
+    # Implement costraints
+    scale = 1
+    if wingspan < (0.15*2):
+        scale *= 0.1
+    if mass_tot > 10:
+        scale *= 0.1
+    if price_est > 1000:
+        scale *= 0.1
+    if root_twist < -5:
+        scale *= 0.1
+    if root_twist > 0:
+        scale *=0.1
+    if mid_twist < -5:
+        scale *= 0.1
+    if mid_twist > 0:
+        scale *=0.1
+    if tip_twist < -5:
+        scale *= 0.1
+    if tip_twist > 0:
+        scale *=0.1
+
     # Minimize this function (maximizes range, minimizes price, equally weighted)
+    # costs = (-range_est/desired_range) + (price_est/desired_cost)
+    # For pygad, the fitness function must be maximized so swap signs
+    costs = ((range_est/desired_range) - (price_est/desired_cost))*scale
+
     # help function be a convex function
     # divide range by first estimate, divide cost by first estimate, use initial run
-    costs = (-range_est/first_range) + (price_est/first_price)
 
     return costs
 
