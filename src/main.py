@@ -5,11 +5,12 @@ from freewake_parse import freewake_input, freewake_run
 import materials
 from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d
-from Mass import total_mass, spar_vol
+from Mass import total_mass, struct_vol
 from Structures import solve_structure
 import math
 import os
 import shutil
+import tempfile
 
 def material_costs(mat):
 
@@ -83,16 +84,17 @@ def power_eqn(V, a, b, c):
     return np.array(a*(V**2) + b*V + c)
 
 
-def aero(weight, wingspan, mid_chord, tip_chord, mid_twist, tip_twist, deflect_tip, deflect_mid):
+def aero(freewake_folder, weight, wingspan, mid_chord, tip_chord, mid_twist, tip_twist, deflect_tip, deflect_mid):
 
-    fw_output_flder = r'C:\Users\mayar\Documents\Ryerson\Grad Classes\AE8139 MDO\MDO_opt\src\fw\output'
-    if os.path.exists(fw_output_flder):
-        shutil.rmtree(fw_output_flder)
-        os.mkdir(fw_output_flder)
+    # fw_output_flder = r'C:\Users\mayar\Documents\Ryerson\Grad Classes\AE8139 MDO\MDO_opt\src\fw\output'
+    fw_output_folder = os.path.join(freewake_folder,f"output")
+    if os.path.exists(fw_output_folder):
+        shutil.rmtree(fw_output_folder)
+        os.mkdir(fw_output_folder)
 
     # Create input file for FreeWake
-    freewake_input(wingspan, mid_chord, tip_chord, mid_twist, tip_twist, weight, deflect_tip, deflect_mid)
-    df_perf, _ = freewake_run()
+    freewake_input(freewake_folder, wingspan, mid_chord, tip_chord, mid_twist, tip_twist, weight, deflect_tip, deflect_mid)
+    df_perf, _ = freewake_run(freewake_folder)
 
     # Fit second-order curve to airspeed vs. power
     df_clean = df_perf.dropna()
@@ -115,8 +117,8 @@ def aero(weight, wingspan, mid_chord, tip_chord, mid_twist, tip_twist, deflect_t
 
         if not math.isnan(aoa_maxR):
             # Re-run FreeWake at aoa for max range
-            freewake_input(wingspan, mid_chord, tip_chord, mid_twist, tip_twist, weight, deflect_tip, deflect_mid, aoa_maxR, aoa_maxR, 1)
-            df_perf_aoa, df_load = freewake_run(aoa_maxR)
+            freewake_input(freewake_folder, wingspan, mid_chord, tip_chord, mid_twist, tip_twist, weight, deflect_tip, deflect_mid, aoa_maxR, aoa_maxR, 1)
+            df_perf_aoa, df_load = freewake_run(freewake_folder,aoa_maxR)
             V_maxR = df_perf_aoa['Vinf'][0]
             Preq = df_perf_aoa['Preq'][0]
             y_pos = df_load['yo']
@@ -178,66 +180,76 @@ def mat_index(i):
 def cost_func(wingspan, mid_chord, tip_chord, w_flange, t_flange, t_web, t_skin_root, t_skin_mid, t_skin_tip, mid_twist, tip_twist, skin_index, spar_index):
     # cost function as a function of all 9 design variables (10 because I assumed skin and spar materials are independent)
 
-    # Initial run of range and cost functions with initial conitions of optimization variables
-    desired_range = 500
-    desired_price = 1000
+    # create a copy of freewake to run for this generation
+    fw_source = r"C:\Users\mayar\Documents\Ryerson\Grad Classes\AE8139 MDO\MDO_opt\src\fw"
+    # new_fw_folder = fw_source
 
-    skin_mat = mat_index(skin_index)
-    spar_mat = mat_index(spar_index)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        fw_temp_folder = os.path.join(temp_dir, "case")
+        new_fw_folder = shutil.copytree(fw_source, fw_temp_folder)
 
-    # Initial guess of skin and spar volumes for first run of aero model
-    spar_volume = spar_vol(wingspan, mid_chord, tip_chord, t_skin_root, t_skin_mid, t_skin_tip, t_flange, w_flange, t_web)
-    skin_inbd_volume = t_skin_root*(((0.15+mid_chord)/2)*(wingspan/4))
-    skin_outbd_volume = (t_skin_mid)*(((mid_chord+tip_chord)/2)*(wingspan/4))
-    skin_volume = (skin_inbd_volume + skin_outbd_volume)*2
-    S = wing_area(wingspan, mid_chord, tip_chord)
+        # Initial run of range and cost functions with initial conitions of optimization variables
+        desired_range = 650.43
+        desired_price = 8.78
 
-    # Initial guess of weight
-    mass_tot = total_mass(spar_volume, skin_volume, spar_mat, skin_mat)
-    weight = mass_tot*9.81
+        skin_mat = mat_index(skin_index)
+        spar_mat = mat_index(spar_index)
 
-    # First run of aero model assuming no tip deflection
-    V_maxR, Preq, y_loc, y_load_old = aero(weight, wingspan, mid_chord, tip_chord, mid_twist, tip_twist, 0, 0)
-    deflect_old = 0
-    deflection_delta = 1
+        # Initial guess of skin and spar volumes for first run of aero model
+        spar_volume, skin_volume = struct_vol(wingspan, mid_chord, tip_chord, t_skin_root, t_skin_mid, t_skin_tip, t_flange, w_flange, t_web)
+        S = wing_area(wingspan, mid_chord, tip_chord)
 
-    # Loop between aero model and structure model until deflections converge
-    while (deflection_delta > 1e-5):
-        # fix the spar in this loop
-        deflect_mid, deflect_tip, spar_volume, skin_volume, max_stress = solve_structure(wingspan, 0.15, mid_chord, tip_chord, t_skin_root, t_skin_mid, t_skin_tip, spar_mat, skin_mat, w_flange, t_flange, t_web, y_loc, y_load_old)
+        # Initial guess of weight
+        mass_tot = total_mass(spar_volume, skin_volume, spar_mat, skin_mat)
+        weight = mass_tot*9.81
 
-        # run aero model with new mass to get loading
-        V_maxR, Preq, y_loc, y_load_new = aero(weight, wingspan, mid_chord, tip_chord, mid_twist, tip_twist, deflect_tip, deflect_mid)
+        # First run of aero model assuming no tip deflection
+        V_maxR, Preq, y_loc, y_load_old = aero(new_fw_folder, weight, wingspan, mid_chord, tip_chord, mid_twist, tip_twist, 0, 0)
+        deflect_old = 0
+        deflection_delta = 1
+        # print(f"Load Dist:{y_load_old}")
 
-        deflection_delta = deflect_tip - deflect_old
+        # Loop between aero model and structure model until deflections converge
+        while (deflection_delta > 1e-5):
+            # fix the spar in this loop
+            deflect_mid, deflect_tip, spar_volume, skin_volume, max_stress = solve_structure(wingspan, 0.15, mid_chord, tip_chord, t_skin_root, t_skin_mid, t_skin_tip, spar_mat, skin_mat, w_flange, t_flange, t_web, y_loc, y_load_old)
 
-        deflect_old = deflect_tip
-        y_load_old = y_load_new
+            # run aero model with new mass to get loading
+            V_maxR, Preq, y_loc, y_load_new = aero(new_fw_folder, weight, wingspan, mid_chord, tip_chord, mid_twist, tip_twist, deflect_tip, deflect_mid)
 
-    # Range model (with aero model)
-    range_est = range_km(V_maxR, Preq)
+            deflection_delta = np.abs(deflect_tip - deflect_old)
 
-    # Price model
-    price_est = price(spar_mat, skin_mat, spar_volume, skin_volume)
+            deflect_old = deflect_tip
+            y_load_old = y_load_new
 
-    # Implement costraints
-    penalty = 0
-    # if wing_load < load_cond:
-    #     penalty = penalty + 10
-    if mass_tot > 10:
-        penalty += ((mass_tot-10)/10)*10 # penalty as a ratio of how much over the limit mass is
-    if price_est > 1000:
-        penalty += ((price_est-1000)/1000)*10 # penalty as a ratio of how much over the limit price is
-    if deflect_tip < (0.15*(wingspan/2)):
-        penalty += ((deflect_tip-(0.15*(wingspan/2)))/(0.15*(wingspan/2)))*20
+            # print(f"Tip deflection:{deflect_tip:.5f}")
 
-    # Minimize this function (maximizes range, minimizes price, equally weighted)
-    # costs = (-range_est/desired_range) + (price_est/desired_cost)
-    # For pygad, the fitness function must be maximized so swap signs
-    costs = (price_est/desired_price) - (range_est/desired_range) + penalty
+        # Range model (with aero model)
+        range_est = range_km(V_maxR, Preq)
 
-    # help function be a convex function
-    # divide range by first estimate, divide cost by first estimate, use initial run
+        # Price model
+        price_est = price(spar_mat, skin_mat, spar_volume, skin_volume)
+
+        # Implement costraints
+        penalty = 0
+        # if wing_load < load_cond:
+        #     penalty = penalty + 10
+        if mass_tot > 10:
+            penalty += ((mass_tot-10)/10)*10 # penalty as a ratio of how much over the limit mass is
+        if price_est > 1000:
+            penalty += ((price_est-1000)/1000)*10 # penalty as a ratio of how much over the limit price is
+        if deflect_tip > (0.15*(wingspan/2)):
+            penalty += ((deflect_tip-(0.15*(wingspan/2)))/(0.15*(wingspan/2)))*20
+
+        # Minimize this function (maximizes range, minimizes price, equally weighted)
+        # costs = (-range_est/desired_range) + (price_est/desired_cost)
+        # For pygad, the fitness function must be maximized so swap signs
+        costs = (price_est/desired_price) - (range_est/desired_range) + penalty
+
+        # help function be a convex function
+        # divide range by first estimate, divide cost by first estimate, use initial run
+
+        shutil.rmtree(temp_dir)
 
     return costs
 
