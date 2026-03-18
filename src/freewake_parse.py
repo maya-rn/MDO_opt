@@ -18,7 +18,7 @@ def freewake_input(span, chord_mid, chord_tip, twist_mid, twist_tip, weight, def
     wing_x_tip = (chord_root*0.303)-(chord_tip*0.303)
 
     # HARDCODED: filepath of Freewake input file
-    path = r"C:\Users\mayar\Documents\Ryerson\AALOFT\Freewake(in_use)\input.txt"
+    path = r"C:\Users\mayar\Documents\Ryerson\Grad Classes\AE8139 MDO\MDO_opt\src\fw\input.txt"
 
     with open(path, "w") as f:
         f.write("Input file for FreeWake 2014 \nFormat will not work with older versions \nPlease note that the program uses equal, number and : signs as special recognizers! \nThe results are written to the sub-directory output' \nInput file for kite foil, normal wing-tail config\n")
@@ -121,18 +121,18 @@ def freewake_run(aoa=None):
 
     # HARDCODED: filepath of Freewake executable
     aoa_col = ['index','xo','yo','zo','cn','cl','cy','cd','A','B','C','S','span','chord','nu','epsilon','psi','phiLE','#']
-    fw_folder = r"C:\Users\mayar\Documents\Ryerson\AALOFT\Freewake(in_use)"
+    fw_folder = r"C:\Users\mayar\Documents\Ryerson\Grad Classes\AE8139 MDO\MDO_opt\src\fw"
     fw_exe = "fw_2025.exe"
     result_check = subprocess.run([fw_exe], cwd=fw_folder, capture_output=True, text=True, shell=True)
     # print("Freewake ran successfully if 0: \n", result_check.returncode)
 
     # Get output Performance.txt file
-    perf_output_path = r"C:/Users/mayar/Documents/Ryerson/AALOFT/Freewake(in_use)/output/Performance.txt"
+    perf_output_path = r"C:\Users\mayar\Documents\Ryerson\Grad Classes\AE8139 MDO\MDO_opt\src\fw\output\Performance.txt"
     df_performance = pd.read_csv(perf_output_path, sep=r'\s+', skiprows=3)
 
     if aoa is not None:
         filename = f"AOA{aoa:.2f}.txt"
-        force_base_path = r"C:/Users/mayar/Documents/Ryerson/AALOFT/Freewake(in_use)/output"
+        force_base_path = r"C:\Users\mayar\Documents\Ryerson\Grad Classes\AE8139 MDO\MDO_opt\src\fw\output"
         force_output_path = os.path.join(force_base_path,filename)
         df_force = pd.read_csv(force_output_path, skiprows=4, sep=r'\s+', nrows=8, header=None, names=aoa_col)
     else:

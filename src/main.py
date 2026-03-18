@@ -8,7 +8,8 @@ from scipy.interpolate import interp1d
 from Mass import total_mass, spar_vol
 from Structures import solve_structure
 import math
-
+import os
+import shutil
 
 def material_costs(mat):
 
@@ -83,6 +84,11 @@ def power_eqn(V, a, b, c):
 
 
 def aero(weight, wingspan, mid_chord, tip_chord, mid_twist, tip_twist, deflect_tip, deflect_mid):
+
+    fw_output_flder = r'C:\Users\mayar\Documents\Ryerson\Grad Classes\AE8139 MDO\MDO_opt\src\fw\output'
+    if os.path.exists(fw_output_flder):
+        shutil.rmtree(fw_output_flder)
+        os.mkdir(fw_output_flder)
 
     # Create input file for FreeWake
     freewake_input(wingspan, mid_chord, tip_chord, mid_twist, tip_twist, weight, deflect_tip, deflect_mid)
